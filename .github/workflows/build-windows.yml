@@ -1,0 +1,53 @@
+name: Build VIctory Belobug AMD Windows x64
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release and diagnostic versions
+        shell: pwsh
+        run: |
+          cargo build --release -p victory --locked
+          if ($LASTEXITCODE -ne 0) { throw "Release build failed" }
+          cargo build --profile diag -p victory --features diagnostics --locked
+          if ($LASTEXITCODE -ne 0) { throw "Diagnostics build failed" }
+
+      - name: Prepare downloadable builds
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force dist/release, dist/diagnostics | Out-Null
+          Copy-Item target/release/victory.exe dist/release/victory.exe
+          Copy-Item target/diag/victory.exe dist/diagnostics/victory.exe
+          Copy-Item victory.example.toml, README.md, LICENSE dist/
+          & ./dist/release/victory.exe --help
+          if ($LASTEXITCODE -ne 0) { throw "Release smoke test failed" }
+          & ./dist/diagnostics/victory.exe --help
+          if ($LASTEXITCODE -ne 0) { throw "Diagnostics smoke test failed" }
+
+      - name: Upload Windows x64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VIctory-Belobug-AMD-Windows-x64
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
